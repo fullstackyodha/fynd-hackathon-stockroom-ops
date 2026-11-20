@@ -1,0 +1,61 @@
+services:
+    db:
+        image: postgres:16-alpine
+        environment:
+            POSTGRES_DB: reservations
+            POSTGRES_USER: reservations
+            POSTGRES_PASSWORD: reservations
+        ports:
+            - '5434:5432'
+        volumes:
+            - postgres_data:/var/lib/postgresql/data
+        healthcheck:
+            test: ['CMD-SHELL', 'pg_isready -U reservations -d reservations']
+            interval: 3s
+            timeout: 3s
+            retries: 20
+
+    api:
+        build:
+            context: ./backend
+        environment:
+            DATABASE_URL: postgresql+psycopg://reservations:reservations@db:5432/reservations
+            CORS_ORIGINS: http://localhost:5173
+            DATABASE_POOL_SIZE: 10
+            DATABASE_MAX_OVERFLOW: 20
+            DATABASE_POOL_TIMEOUT_SECONDS: 5
+        command:
+            - sh
+            - -c
+            - alembic upgrade head && python -m app.seed && uvicorn app.main:app
+              --host 0.0.0.0 --port 8000
+        ports:
+            - '8000:8000'
+        depends_on:
+            db:
+                condition: service_healthy
+        healthcheck:
+            test:
+                - CMD
+                - python
+                - -c
+                - "import urllib.request;
+                  urllib.request.urlopen('http://127.0.0.1:8000/health/ready',
+                  timeout=2)"
+            interval: 5s
+            timeout: 3s
+            retries: 10
+
+    frontend:
+        build:
+            context: ./frontend
+            args:
+                VITE_API_BASE_URL: http://localhost:8000
+        ports:
+            - '5173:80'
+        depends_on:
+            api:
+                condition: service_healthy
+
+volumes:
+    postgres_data:
